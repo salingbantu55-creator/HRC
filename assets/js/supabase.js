@@ -5,6 +5,10 @@
    Kunci anon/publishable Supabase bersifat publik dan aman di sisi
    klien karena seluruh keamanan diatur lewat Row Level Security.
    SERVICE_ROLE KEY TIDAK PERNAH berada di file frontend ini.
+   PENTING: pada mode Supabase, kolom id seluruh tabel bertipe uuid
+   dengan default gen_random_uuid() di server — ID TIDAK PERNAH dibuat
+   di klien (ID lokal berformat "d-…" hanya untuk penyimpanan demo dan
+   akan ditolak Postgres bila terkirim).
    ============================================================ */
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.45.4';
@@ -98,6 +102,10 @@ export function resetDemoData() { loadDemo(true); }
 function uidLocal() {
   return 'd-' + (crypto.randomUUID ? crypto.randomUUID().slice(0, 12) : Math.random().toString(36).slice(2, 12));
 }
+
+// UUID kanonik 8-4-4-4-12 heksadesimal — dipakai untuk menyaring ID buatan
+// klien sebelum payload dikirim ke Supabase (kolom uuid).
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 function demoTable(table) {
   loadDemo();
@@ -274,12 +282,17 @@ export const db = {
 
   async insert(table, row, opts = {}) {
     const now = new Date().toISOString();
-    const payload = { id: uidLocal(), created_at: now, updated_at: now, ...row };
     if (mode === 'supabase') {
+      // id uuid dibuat server (gen_random_uuid) — klien TIDAK mengirim id.
+      // Bila ada id bawaan dari pemanggil yang bukan UUID valid (sisa mode
+      // demo), buang agar Postgres yang menentukan.
+      const payload = { created_at: now, updated_at: now, ...row };
+      if (payload.id !== undefined && !UUID_RE.test(String(payload.id))) delete payload.id;
       const { data, error } = await sb.from(table).insert(payload).select(opts.select || '*').single();
       if (error) throw new Error(dbErr(error));
       return data;
     }
+    const payload = { id: uidLocal(), created_at: now, updated_at: now, ...row };
     loadDemo();
     demoTable(table).push(payload);
     persistDemo();
@@ -289,12 +302,17 @@ export const db = {
   async insertMany(table, rows) {
     if (!rows.length) return [];
     const now = new Date().toISOString();
-    const payloads = rows.map((r) => ({ id: uidLocal(), created_at: now, updated_at: now, ...r }));
     if (mode === 'supabase') {
+      const payloads = rows.map((r) => {
+        const p = { created_at: now, updated_at: now, ...r };
+        if (p.id !== undefined && !UUID_RE.test(String(p.id))) delete p.id;
+        return p;
+      });
       const { data, error } = await sb.from(table).insert(payloads).select('*');
       if (error) throw new Error(dbErr(error));
       return data;
     }
+    const payloads = rows.map((r) => ({ id: uidLocal(), created_at: now, updated_at: now, ...r }));
     loadDemo();
     demoTable(table).push(...payloads);
     persistDemo();
@@ -439,5 +457,6 @@ function dbErr(err) {
   if (/row-level security/i.test(m)) return 'Akses ditolak oleh kebijakan keamanan (RLS). Klasifikasi dokumen atau role Anda tidak mengizinkan aksi ini.';
   if (/duplicate key/i.test(m)) return 'Data dengan nomor/kode tersebut sudah ada.';
   if (/violates foreign key/i.test(m)) return 'Referensi data tidak valid (relasi tidak ditemukan).';
+  if (/invalid input syntax for type uuid/i.test(m)) return 'Format ID data tidak valid (bukan UUID). Perbarui aplikasi ke versi terbaru (assets/js/supabase.js) lalu muat ulang halaman.';
   return m || 'Terjadi kesalahan database.';
 }
