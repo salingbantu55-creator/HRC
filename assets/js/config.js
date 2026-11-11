@@ -7,7 +7,7 @@ export const APP = {
   name: 'HR Knowledge Center Yayasan',
   short: 'HR Knowledge Center',
   tagline: 'Pusat Pengetahuan, Regulasi, dan Tata Kelola Sumber Daya Manusia Yayasan Pendidikan.',
-  version: '1.0.0',
+  version: '1.1.0',
   assistantName: 'Madani HR Assistant',
 };
 

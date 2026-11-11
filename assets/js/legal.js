@@ -8,6 +8,8 @@ import { LEGAL_GROUPS, CLASSIFICATIONS } from './config.js';
 import { db, can, profile } from './supabase.js';
 import { esc, toast, modal, formModal, confirmDialog, badge, refreshIcons, fmtDate, fmtSize, rowIcon, validateFile, emptyState, downloadUrl } from './ui.js';
 
+console.info('[HRKC 1.1.0] legal.js — setiap grup hanya menampilkan jenis dokumennya (fix tampil ganda)');
+
 const LEGAL_CATS = ['legalitas-yayasan', 'kebijakan-sdm'];
 const DOC_KINDS = [
   { label: 'Akta Pendirian', value: 'Akta Pendirian' }, { label: 'Akta Perubahan', value: 'Akta Perubahan' },

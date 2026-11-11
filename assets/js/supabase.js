@@ -18,6 +18,7 @@ import { DEMO_SEED, DEMO_USERS, DEMO_PASSWORD } from './seed-data.js';
 let sb = null;
 let mode = 'demo';
 let currentProfile = null;
+console.info('[HRKC 1.1.0] supabase.js — id UUID dibuat server (fix "invalid input syntax for type uuid")');
 
 /* ================= Konfigurasi koneksi ================= */
 export function getSavedConfig() {

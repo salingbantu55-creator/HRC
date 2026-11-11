@@ -5,6 +5,8 @@
 
 import { STATUS_BADGE, MAX_FILE_SIZE, ALLOWED_EXT, APP } from './config.js';
 
+console.info(`[HRKC ${APP.version}] ui.js — tombol simpan terkunci saat proses (anti simpan ganda)`);
+
 /* ---------- Util dasar ---------- */
 export const esc = (s) => String(s ?? '')
   .replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;')
