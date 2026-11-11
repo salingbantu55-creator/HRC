@@ -141,8 +141,14 @@ supabase link --project-ref <project-ref>     # abcdefgh dari URL project
 # 2. Simpan kunci sebagai secret server
 supabase secrets set GEMINI_API_KEY=your_gemini_api_key
 
-# 3. Deploy Edge Function dari folder proyek
+# (opsional) pin model tertentu — default: gemini-3.5-flash-lite
+supabase secrets set GEMINI_MODEL=gemini-3.5-flash-lite
+
+# 3. Deploy Edge Function dari folder proyek (WAJIB ulang setiap kali kode atau secret berubah)
 supabase functions deploy hr-assistant
+
+# 4. Verifikasi secret terpasang
+supabase secrets list
 ```
 
 Uji cepat (opsional):
@@ -154,6 +160,14 @@ curl -X POST "https://<project-ref>.supabase.co/functions/v1/hr-assistant" \
 ```
 
 Tanpa langkah ini, modul AI tetap berjalan dalam **Mode Demo** (retrieval dokumen lokal) dan menampilkan catatan bahwa AI penuh menunggu Edge Function.
+
+### Model Gemini — hal penting agar tidak 404
+
+Google **memensiunkan model lama secara berkala**. `gemini-1.5-*` dan `gemini-2.0-*` sudah **dimatikan**; `gemini-2.5-*` dibatasi untuk pengguna lama. Bila model yang diminta sudah tidak ada, API menjawab **404 "model not found"** walaupun API key Anda valid.
+
+Model aktif yang disarankan (per Nov 2026): `gemini-3.5-flash-lite` (default, cepat & hemat), `gemini-3.8-flash` (lebih cerdas), alias `gemini-flash-latest`.
+
+Edge Function ini dilengkapi **fallback otomatis**: bila model yang dipinta 404, fungsi mencoba model aktif berikutnya sehingga asisten tetap berfungsi. Untuk memaksa model tertentu: `supabase secrets set GEMINI_MODEL=<nama-model>` lalu `supabase functions deploy hr-assistant`. Daftar model terkini selalu ada di https://aistudio.google.com/docs/models.
 
 ---
 
@@ -223,6 +237,10 @@ Matriks lengkap terlihat di **Pengaturan → Matriks Hak Akses** dan diimplement
 | Test Koneksi: "skema belum dijalankan" | SQL belum dieksekusi | Jalankan schema → policies → seed |
 | Storage "bucket belum dibuat" | policies.sql belum dijalankan | Jalankan `policies.sql` |
 | AI: "GEMINI_API_KEY belum diset" | Secret Edge Function kosong | Ikuti bagian 8 |
+| AI: "Gemini API error (404)" | Model Gemini sudah dipensiunkan Google (mis. `gemini-2.0-flash`) | Perbarui kode Edge Function terbaru + `supabase functions deploy hr-assistant` (ada fallback model otomatis); atau `supabase secrets set GEMINI_MODEL=gemini-3.5-flash-lite` lalu deploy ulang |
+| AI: "Gemini API error (400/403)" | API key tidak valid / Generative Language API belum aktif | Buat ulang kunci di https://aistudio.google.com/apikey dan set ulang secret |
+| AI: "Gemini API error (429)" | Kuota harian/rate limit habis | Tunggu atau naikkan kuota di AI Studio |
+| AI menjawab tapi jawaban terpotong | Batas token keluaran | Sudah ditangani (maxOutputTokens 4096 + thinkingLevel low); ringkaskan pertanyaan bila terjadi |
 | Email reset tidak terkirim | SMTP Supabase terbatas pada free tier | Aktifkan SMTP kustom di Auth → SMTP |
 
 ## 13. Keamanan — Ringkasan Implementasi

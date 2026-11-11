@@ -3,7 +3,10 @@
 // ----------------------------------------------------------------------------
 // 1) Kunci API Gemini TIDAK PERNAH berada di frontend. Simpan sebagai secret:
 //      supabase secrets set GEMINI_API_KEY=your_gemini_api_key
-//    (opsional) GEMINI_MODEL default: gemini-2.0-flash
+//    (opsional) GEMINI_MODEL default: gemini-3.5-flash-lite.
+//    PENTING: model lama (gemini-1.5, gemini-2.0, dst.) sudah dimatikan Google
+//    dan menjadi penyebab paling umum error 404. Fungsi ini otomatis mencoba
+//    model aktif berikutnya bila model yang dipilih sudah tidak tersedia.
 // 2) Deploy:
 //      supabase functions deploy hr-assistant
 // 3) Pemanggilan dari frontend memakai access token pengguna (Authorization:
@@ -57,7 +60,7 @@ Deno.serve(async (req: Request) => {
 
   try {
     const GEMINI_API_KEY = Deno.env.get('GEMINI_API_KEY');
-    const GEMINI_MODEL = Deno.env.get('GEMINI_MODEL') || 'gemini-2.0-flash';
+    const GEMINI_MODEL = Deno.env.get('GEMINI_MODEL') || 'gemini-3.5-flash-lite';
     const authHeader = req.headers.get('Authorization') || '';
     const jwt = authHeader.replace(/^Bearer\s+/i, '');
     if (!jwt) return json({ error: 'Butuh token autentikasi (Bearer).' }, 401);
@@ -153,32 +156,90 @@ Deno.serve(async (req: Request) => {
       });
     }
 
-    const geminiRes = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          systemInstruction: { parts: [{ text: SYSTEM_PROMPT }] },
-          contents: [
-            {
-              role: 'user',
-              parts: [{ text: `${contextText}\n\nPERTANYAAN PENGGUNA:\n${message}` }],
+    // Rantai model: secret GEMINI_MODEL dipakai lebih dulu, lalu fallback ke
+    // model aktif lainnya. Google memensiunkan model lama secara berkala
+    // (404 "model not found"), sehingga fallback menjaga asisten tetap hidup.
+    const modelChain = Array.from(new Set([
+      GEMINI_MODEL,
+      'gemini-3.5-flash-lite',
+      'gemini-3.8-flash',
+      'gemini-flash-latest',
+    ]));
+
+    const callGemini = (model: string) =>
+      fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            // Kirim kunci via header (bukan query string) agar tidak masuk log.
+            'x-goog-api-key': GEMINI_API_KEY,
+          },
+          body: JSON.stringify({
+            systemInstruction: { parts: [{ text: SYSTEM_PROMPT }] },
+            contents: [
+              {
+                role: 'user',
+                parts: [{ text: `${contextText}\n\nPERTANYAAN PENGGUNA:\n${message}` }],
+              },
+            ],
+            generationConfig: {
+              temperature: 0.4,
+              // Perlu ruang cukup karena token "thinking" model 3.x dihitung
+              // dari total maxOutputTokens — terlalu kecil = jawaban kosong.
+              maxOutputTokens: 4096,
+              // Batasi tingkat berpikir model Gemini 3.x agar cepat & hemat.
+              // Untuk model selain 3.x field ini tidak dikirim (kompatibilitas).
+              ...(/^(gemini-3|gemini-flash-latest)/.test(model)
+                ? { thinkingLevel: 'low' }
+                : {}),
             },
-          ],
-          generationConfig: { temperature: 0.4, maxOutputTokens: 1600 },
-        }),
-      },
-    );
-    if (!geminiRes.ok) {
-      const errText = await geminiRes.text();
-      console.error('Gemini error:', errText.slice(0, 500));
-      return json({ error: `Gemini API error (${geminiRes.status}). Periksa GEMINI_API_KEY dan kuota.` }, 502);
+          }),
+        },
+      );
+
+    let geminiRes: Response | null = null;
+    let lastStatus = 0;
+    let lastBody = '';
+    for (const model of modelChain) {
+      const res = await callGemini(model);
+      if (res.ok) {
+        geminiRes = res;
+        break;
+      }
+      lastStatus = res.status;
+      lastBody = await res.text();
+      console.error(`Gemini error (${model}, status ${res.status}):`, lastBody.slice(0, 500));
+      // 404 = model tidak ditemukan/dipensiunkan → coba model berikutnya.
+      // Kesalahan lain (kunci, kuota, format) langsung dilaporkan.
+      if (res.status !== 404) break;
     }
+
+    if (!geminiRes) {
+      let detail = '';
+      try {
+        detail = JSON.parse(lastBody)?.error?.message || '';
+      } catch { /* bukan JSON */ }
+      if (!detail) detail = lastBody.slice(0, 300);
+      const hint =
+        lastStatus === 404
+          ? ' Model tidak ditemukan. Model lama (gemini-1.5/2.0/2.5) sudah dipensiunkan Google — set secret GEMINI_MODEL ke model aktif (mis. gemini-3.5-flash-lite) lalu deploy ulang.'
+          : lastStatus === 429
+          ? ' Kuota/rate limit Gemini tercapai — periksa Google AI Studio.'
+          : lastStatus === 400 || lastStatus === 403
+          ? ' Periksa GEMINI_API_KEY (kunci tidak valid atau Generative Language API belum aktif untuk proyek kunci tersebut).'
+          : ' Periksa status layanan Gemini lalu coba lagi.';
+      return json({ error: `Gemini API error (${lastStatus}).${hint}${(detail ? ' Detail: ' : '') + detail}` }, 502);
+    }
+
     const geminiJson = await geminiRes.json();
+    const candidate = geminiJson?.candidates?.[0];
     const answer: string =
-      geminiJson?.candidates?.[0]?.content?.parts?.map((p: any) => p.text).join('') ||
-      'Tidak ada jawaban yang dihasilkan.';
+      candidate?.content?.parts?.map((p: any) => p.text).filter(Boolean).join('') ||
+      (candidate?.finishReason === 'MAX_TOKENS'
+        ? 'Jawaban terpotong karena batas token model. Coba pertanyaan yang lebih ringkas.'
+        : 'Tidak ada jawaban yang dihasilkan.');
 
     // ---------------- Simpan percakapan ----------------
     let convId = conversationId;
