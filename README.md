@@ -167,7 +167,9 @@ Google **memensiunkan model lama secara berkala**. `gemini-1.5-*` dan `gemini-2.
 
 Model aktif yang disarankan (per Nov 2026): `gemini-3.5-flash-lite` (default, cepat & hemat), `gemini-3.8-flash` (lebih cerdas), alias `gemini-flash-latest`.
 
-Edge Function ini dilengkapi **fallback otomatis**: bila model yang dipinta 404, fungsi mencoba model aktif berikutnya sehingga asisten tetap berfungsi. Untuk memaksa model tertentu: `supabase secrets set GEMINI_MODEL=<nama-model>` lalu `supabase functions deploy hr-assistant`. Daftar model terkini selalu ada di https://aistudio.google.com/docs/models.
+Edge Function ini dilengkapi **fallback otomatis dua lapis**: (1) bila model yang dipinta 404 (sudah dipensiunkan), fungsi mencoba model aktif berikutnya; (2) bila payload ditolak model (400 `Unknown name …`, mis. field thinking tidak didukung), fungsi mengulang tanpa field tersebut sehingga asisten tetap berfungsi. Untuk memaksa model tertentu: `supabase secrets set GEMINI_MODEL=<nama-model>` lalu `supabase functions deploy hr-assistant`. Daftar model terkini selalu ada di https://aistudio.google.com/docs/models.
+
+> **Catatan teknis:** pada model Gemini 3.x, field `thinkingLevel` harus berada di dalam `generationConfig.thinkingConfig` — bukan langsung di `generationConfig`. Penempatan yang salah ditolak Google dengan 400 `Unknown name "thinkingLevel" at 'generation_config'`. Versi kode saat ini sudah benar; bila Anda mengalami error tersebut, artinya Edge Function masih memakai kode lama — ambil versi terbaru `supabase/functions/hr-assistant/index.ts` lalu deploy ulang.
 
 ---
 
@@ -238,9 +240,10 @@ Matriks lengkap terlihat di **Pengaturan → Matriks Hak Akses** dan diimplement
 | Storage "bucket belum dibuat" | policies.sql belum dijalankan | Jalankan `policies.sql` |
 | AI: "GEMINI_API_KEY belum diset" | Secret Edge Function kosong | Ikuti bagian 8 |
 | AI: "Gemini API error (404)" | Model Gemini sudah dipensiunkan Google (mis. `gemini-2.0-flash`) | Perbarui kode Edge Function terbaru + `supabase functions deploy hr-assistant` (ada fallback model otomatis); atau `supabase secrets set GEMINI_MODEL=gemini-3.5-flash-lite` lalu deploy ulang |
-| AI: "Gemini API error (400/403)" | API key tidak valid / Generative Language API belum aktif | Buat ulang kunci di https://aistudio.google.com/apikey dan set ulang secret |
+| AI: "Gemini API error (400) — Unknown name \"thinkingLevel\"" | Edge Function masih memakai kode lama (field `thinkingLevel` salah posisi di `generationConfig`) | Perbarui `supabase/functions/hr-assistant/index.ts` ke versi terbaru (kode kini menempatkannya di `generationConfig.thinkingConfig`) lalu `supabase functions deploy hr-assistant`. API key Anda valid — tidak perlu dibuat ulang |
+| AI: "Gemini API error (400) — lainnya / 403" | API key tidak valid / Generative Language API belum aktif | Buat ulang kunci di https://aistudio.google.com/apikey dan set ulang secret |
 | AI: "Gemini API error (429)" | Kuota harian/rate limit habis | Tunggu atau naikkan kuota di AI Studio |
-| AI menjawab tapi jawaban terpotong | Batas token keluaran | Sudah ditangani (maxOutputTokens 4096 + thinkingLevel low); ringkaskan pertanyaan bila terjadi |
+| AI menjawab tapi jawaban terpotong | Batas token keluaran | Sudah ditangani (maxOutputTokens 8192 + thinkingLevel low di dalam thinkingConfig); ringkaskan pertanyaan bila terjadi |
 | Email reset tidak terkirim | SMTP Supabase terbatas pada free tier | Aktifkan SMTP kustom di Auth → SMTP |
 
 ## 13. Keamanan — Ringkasan Implementasi

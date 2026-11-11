@@ -7,6 +7,9 @@
 //    PENTING: model lama (gemini-1.5, gemini-2.0, dst.) sudah dimatikan Google
 //    dan menjadi penyebab paling umum error 404. Fungsi ini otomatis mencoba
 //    model aktif berikutnya bila model yang dipilih sudah tidak tersedia.
+//    Catatan payload: field "thinkingLevel" WAJIB berada di dalam
+//    generationConfig.thinkingConfig (bukan langsung di generationConfig);
+//    salah posisi ditolak Google dengan 400 "Unknown name thinkingLevel".
 // 2) Deploy:
 //      supabase functions deploy hr-assistant
 // 3) Pemanggilan dari frontend memakai access token pengguna (Authorization:
@@ -166,7 +169,7 @@ Deno.serve(async (req: Request) => {
       'gemini-flash-latest',
     ]));
 
-    const callGemini = (model: string) =>
+    const callGemini = (model: string, withThinking: boolean) =>
       fetch(
         `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
         {
@@ -188,11 +191,14 @@ Deno.serve(async (req: Request) => {
               temperature: 0.4,
               // Perlu ruang cukup karena token "thinking" model 3.x dihitung
               // dari total maxOutputTokens — terlalu kecil = jawaban kosong.
-              maxOutputTokens: 4096,
-              // Batasi tingkat berpikir model Gemini 3.x agar cepat & hemat.
-              // Untuk model selain 3.x field ini tidak dikirim (kompatibilitas).
-              ...(/^(gemini-3|gemini-flash-latest)/.test(model)
-                ? { thinkingLevel: 'low' }
+              maxOutputTokens: 8192,
+              // Struktur resmi Gemini API: thinkingLevel berada DI DALAM
+              // generationConfig.thinkingConfig — BUKAN langsung di
+              // generationConfig (salah posisi = 400 "Unknown name
+              // thinkingLevel"). Hanya untuk model 3.x; model lain memakai
+              // perilaku default agar payload selalu diterima.
+              ...(withThinking
+                ? { thinkingConfig: { thinkingLevel: 'low' } }
                 : {}),
             },
           }),
@@ -203,17 +209,37 @@ Deno.serve(async (req: Request) => {
     let lastStatus = 0;
     let lastBody = '';
     for (const model of modelChain) {
-      const res = await callGemini(model);
-      if (res.ok) {
-        geminiRes = res;
+      // Model 3.x dicoba lebih dulu DENGAN thinkingConfig; bila payload
+      // ditolak (400 "Unknown name …"), ulang TANPA thinkingConfig agar
+      // asisten tetap hidup pada model/kemampuan apa pun.
+      const wantsThinking = /^(gemini-3|gemini-flash-latest)/.test(model);
+      for (const withThinking of wantsThinking ? [true, false] : [false]) {
+        const res = await callGemini(model, withThinking);
+        if (res.ok) {
+          geminiRes = res;
+          break;
+        }
+        lastStatus = res.status;
+        lastBody = await res.text();
+        console.error(
+          `Gemini error (${model}, thinking=${withThinking}, status ${res.status}):`,
+          lastBody.slice(0, 500),
+        );
+        // Payload ditolak karena field thinking tidak didukung model ini
+        // → coba sekali lagi tanpa thinkingConfig.
+        if (
+          res.status === 400 &&
+          withThinking &&
+          /unknown name|invalid json payload/i.test(lastBody)
+        ) {
+          continue;
+        }
         break;
       }
-      lastStatus = res.status;
-      lastBody = await res.text();
-      console.error(`Gemini error (${model}, status ${res.status}):`, lastBody.slice(0, 500));
+      if (geminiRes) break;
       // 404 = model tidak ditemukan/dipensiunkan → coba model berikutnya.
-      // Kesalahan lain (kunci, kuota, format) langsung dilaporkan.
-      if (res.status !== 404) break;
+      // Kesalahan lain (kunci, kuota, payload final) langsung dilaporkan.
+      if (lastStatus !== 404) break;
     }
 
     if (!geminiRes) {
@@ -227,6 +253,8 @@ Deno.serve(async (req: Request) => {
           ? ' Model tidak ditemukan. Model lama (gemini-1.5/2.0/2.5) sudah dipensiunkan Google — set secret GEMINI_MODEL ke model aktif (mis. gemini-3.5-flash-lite) lalu deploy ulang.'
           : lastStatus === 429
           ? ' Kuota/rate limit Gemini tercapai — periksa Google AI Studio.'
+          : lastStatus === 400 && /unknown name|invalid json payload/i.test(lastBody)
+          ? ' Payload Edge Function tidak cocok dengan skema model ini — perbarui supabase/functions/hr-assistant/index.ts ke versi terbaru lalu deploy ulang: supabase functions deploy hr-assistant.'
           : lastStatus === 400 || lastStatus === 403
           ? ' Periksa GEMINI_API_KEY (kunci tidak valid atau Generative Language API belum aktif untuk proyek kunci tersebut).'
           : ' Periksa status layanan Gemini lalu coba lagi.';
