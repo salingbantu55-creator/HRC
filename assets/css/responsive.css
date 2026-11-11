@@ -1,0 +1,110 @@
+/* ============================================================
+   HR KNOWLEDGE CENTER YAYASAN — responsive.css
+   Breakpoint: tablet ≤1024px, mobile ≤768px, kecil ≤480px
+   ============================================================ */
+
+/* ---------- Tablet ≤ 1024px ---------- */
+@media (max-width: 1024px) {
+  .shell { grid-template-columns: 240px 1fr; }
+  .global-search { width: min(360px, 30vw); }
+  .grid-2-1, .grid-1-2 { grid-template-columns: 1fr; }
+  .grid-3 { grid-template-columns: 1fr 1fr; }
+  .assistant-layout { grid-template-columns: 220px 1fr; }
+  .auth-brand { padding: 44px 36px; }
+  .auth-brand h1 { font-size: 1.7rem; }
+}
+
+/* ---------- Mobile ≤ 768px : sidebar off-canvas ---------- */
+@media (max-width: 768px) {
+  html { font-size: 14.5px; }
+
+  .shell { grid-template-columns: 1fr; }
+  .sidebar {
+    position: fixed; left: 0; top: 0; bottom: 0; width: 272px;
+    transform: translateX(-100%); transition: transform .22s ease;
+    box-shadow: var(--shadow-lg);
+  }
+  .sidebar.open { transform: translateX(0); }
+  .sidebar-backdrop {
+    position: fixed; inset: 0; background: rgba(7, 16, 34, .5); z-index: 55;
+    backdrop-filter: blur(2px);
+  }
+
+  .header { padding: 9px 14px; flex-wrap: nowrap; }
+  .global-search { position: static; width: auto; flex: 1; margin-left: 0; }
+  .global-search kbd { display: none; }
+  .breadcrumb .bc-path { display: none; }
+  .user-btn .u-name { display: none; }
+  .content { padding: 15px 13px; }
+  .footer { padding: 12px 14px; flex-direction: column; gap: 4px; text-align: center; }
+
+  .page-head { flex-direction: column; align-items: flex-start; gap: 10px; }
+  .page-head .ph-actions { width: 100%; }
+  .page-head .ph-actions .btn { flex: 1; min-width: 0; justify-content: center; }
+
+  .stat-grid { grid-template-columns: 1fr 1fr; gap: 10px; }
+  .stat-card { padding: 13px; gap: 10px; }
+  .stat-card .stat-val { font-size: 1.2rem; }
+  .stat-ic { width: 36px; height: 36px; }
+
+  .grid-2, .grid-3 { grid-template-columns: 1fr; }
+  .grid-2-1, .grid-1-2 { grid-template-columns: 1fr; }
+  .chart-box { height: 230px; }
+
+  .dt-toolbar { padding: 11px 12px; }
+  .dt-search { max-width: none; }
+  .dt-actions { margin-left: 0; width: 100%; }
+  .table-wrap { margin: 0; }
+  .data-table { min-width: 560px; font-size: .8rem; }
+
+  .modal-overlay { padding: 4vh 10px 16px; }
+  .modal-body { max-height: 62vh; padding: 16px; }
+  .form-grid { grid-template-columns: 1fr; }
+  .detail-grid { grid-template-columns: 1fr; }
+
+  .auth-page { grid-template-columns: 1fr; }
+  .auth-brand { display: none; }
+  .auth-panel { padding: 24px 14px; }
+  .auth-card { padding: 28px 22px; }
+
+  .assistant-layout { grid-template-columns: 1fr; }
+  .conv-list-card { display: none; }
+  .chat-card { min-height: 440px; max-height: calc(100vh - 180px); }
+  .msg { max-width: 96%; }
+
+  .toast-root { left: 12px; right: 12px; max-width: none; }
+  .pipeline .pipe-step { min-width: 72px; }
+  .tile-grid { grid-template-columns: 1fr 1fr; }
+}
+
+/* ---------- Kecil ≤ 480px ---------- */
+@media (max-width: 480px) {
+  html { font-size: 14px; }
+  .stat-grid { grid-template-columns: 1fr 1fr; }
+  .quick-grid { grid-template-columns: 1fr 1fr; }
+  .tile-grid { grid-template-columns: 1fr; }
+  .header-right .icon-btn.hide-xs { display: none; }
+  .modal { max-width: 100% !important; }
+  .modal.lg, .modal.xl { max-width: 100%; }
+  .btn { padding: 8px 12px; }
+  .gs-dropdown { position: fixed; left: 10px; right: 10px; top: 58px; max-height: 66vh; }
+  .chips { gap: 5px; }
+  .chip { padding: 5px 10px; font-size: .74rem; }
+}
+
+/* Desktop besar ≥ 1440px: konten terpusat maksimal */
+@media (min-width: 1440px) {
+  .content .page-inner { max-width: 1380px; margin: 0 auto; }
+}
+
+/* Preferensi sistem */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: .001s !important; transition-duration: .001s !important; }
+}
+
+/* Cetak */
+@media print {
+  .sidebar, .header, .footer, .dt-toolbar, .dt-foot, .btn, .toast-root, #modal-root { display: none !important; }
+  .shell { grid-template-columns: 1fr; }
+  .content { padding: 0; }
+}
