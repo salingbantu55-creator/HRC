@@ -4,7 +4,7 @@
    Dokumen dikelompokkan berdasar tingkat kewenangan & kerahasiaan.
    ============================================================ */
 
-import { LEGAL_GROUPS, CLASSIFICATIONS, DOC_CATEGORIES } from './config.js';
+import { LEGAL_GROUPS, CLASSIFICATIONS } from './config.js';
 import { db, can, profile } from './supabase.js';
 import { esc, toast, modal, formModal, confirmDialog, badge, refreshIcons, fmtDate, fmtSize, rowIcon, validateFile, emptyState, downloadUrl } from './ui.js';
 
@@ -20,11 +20,51 @@ const DOC_KINDS = [
   { label: 'Tata Hubungan Yayasan & Unit Pendidikan', value: 'Tata Hubungan Yayasan & Unit Pendidikan' },
 ];
 
+/* ---------- Helper pencocokan grup (diekspor untuk pengujian) ---------- */
+/* Judul dicocokkan kata-demi-kata (case-insensitive) agar varian judul seperti
+   "SK Dewan Pembina dan Pengurus Yayasan…" tetap masuk grup SK Keorganisasian. */
+export function matchLegalGroup(title, category, groupCount = LEGAL_GROUPS.length) {
+  const t = String(title || '').toLowerCase();
+  for (let gi = 0; gi < groupCount; gi++) {
+    const items = LEGAL_GROUPS[gi].items || [];
+    if (items.some((k) => String(k).toLowerCase().split(/\s+/).every((w) => t.includes(w)))) return gi;
+  }
+  // Tidak cocok dengan jenis manapun: dokumen kebijakan-sdm → grup terakhir
+  // (Tata Kelola), selain itu → grup pertama (Akta & Legalitas).
+  return category === 'kebijakan-sdm' ? groupCount - 1 : 0;
+}
+
+/* ---------- Dedup tampilan ---------- */
+/* Baris hasil simpan ganda lama (judul + nomor + tanggal berlaku sama) hanya
+   ditampilkan sekali. Yang dipertahankan diprioritaskan: yang sudah punya
+   berkas, lalu yang terbaru. Data asli tetap ada di database — bersihkan
+   permanen via supabase/cleanup_duplicates.sql. */
+export function dedupeDocs(rows) {
+  const best = new Map();
+  for (const d of rows) {
+    const sig = [d.category, d.title, d.doc_number || '', d.valid_from || ''].join('|');
+    const cur = best.get(sig);
+    if (!cur) { best.set(sig, d); continue; }
+    const dHas = !!(d.file_path || d.file_name), cHas = !!(cur.file_path || cur.file_name);
+    const dT = String(d.created_at || ''), cT = String(cur.created_at || '');
+    if ((dHas && !cHas) || (dHas === cHas && dT > cT)) best.set(sig, d);
+  }
+  return [...best.values()];
+}
+
 export async function render(content, params = {}) {
-  const docs = await db.list('documents', { filters: { category: 'legalitas-yayasan' } }).catch(() => []);
-  const govDocs = await db.list('documents', { filters: { category: 'kebijakan-sdm' } }).catch(() => []);
-  const legal = docs.filter((d) => d.category === 'legalitas-yayasan');
-  const governance = [...docs.filter((d) => d.category === 'kebijakan-sdm'), ...govDocs.filter((d) => d.category === 'kebijakan-sdm')];
+  const legalRows = await db.list('documents', { filters: { category: 'legalitas-yayasan' } }).catch(() => []);
+  const govRows = await db.list('documents', { filters: { category: 'kebijakan-sdm' } }).catch(() => []);
+  const docs = dedupeDocs([
+    ...legalRows.filter((d) => d.category === 'legalitas-yayasan'),
+    ...govRows.filter((d) => d.category === 'kebijakan-sdm'),
+  ]);
+  // Setiap dokumen hanya masuk SATU grup sesuai jenisnya (LEGAL_GROUPS.items)
+  // — sebelumnya seluruh dokumen legalitas ditampilkan di grup 0 DAN grup 1
+  // sehingga semuanya tampak ganda.
+  const byGroup = LEGAL_GROUPS.map(() => []);
+  docs.forEach((d) => byGroup[matchLegalGroup(d.title, d.category)].push(d));
+  byGroup.forEach((arr) => arr.sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || ''))));
 
   content.innerHTML = `
   <div class="page-head">
@@ -44,9 +84,7 @@ export async function render(content, params = {}) {
 
   const wrap = content.querySelector('#legal-groups');
   const groupsHtml = LEGAL_GROUPS.map((g, gi) => {
-    const items = gi === 2
-      ? governance.filter((d) => DOC_KINDS.some((k) => d.title.includes(k.value)) || ['kebijakan-sdm'].includes(d.category))
-      : legal;
+    const items = byGroup[gi];
     return `<div class="card mt-2">
       <div class="card-head"><h3><i data-lucide="${gi === 0 ? 'landmark' : gi === 1 ? 'file-badge' : 'building-2'}"></i> ${esc(g.label)}</h3>
         <span class="chip-tag">${items.length} dokumen</span></div>
@@ -62,7 +100,7 @@ export async function render(content, params = {}) {
   refreshIcons(wrap);
 
   wrap.querySelectorAll('.mini-item').forEach((el) => {
-    const d = [...legal, ...governance].find((x) => x.id === el.dataset.id);
+    const d = docs.find((x) => x.id === el.dataset.id);
     el.addEventListener('click', () => showLegalDetail(d, () => render(content, params)));
     el.querySelectorAll('[data-action="edit"]').forEach((b) => b.addEventListener('click', (e) => {
       e.stopPropagation();

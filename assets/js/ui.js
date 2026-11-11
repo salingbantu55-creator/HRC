@@ -126,8 +126,16 @@ export function formModal({ title, icon = 'edit-3', fields, submitLabel = 'Simpa
     });
     const form = m.el.querySelector('#hrk-form');
     m.el.querySelector('[data-act="cancel"]').addEventListener('click', () => m.close());
-    m.el.querySelector('[data-act="submit"]').addEventListener('click', async (e) => {
-      e.preventDefault();
+    const submitBtn = m.el.querySelector('[data-act="submit"]');
+    const restoreBtn = () => {
+      submitBtn.classList.remove('loading');
+      submitBtn.disabled = false;
+      submitBtn.innerHTML = `<i data-lucide="save"></i>${esc(submitLabel)}`;
+      refreshIcons(submitBtn);
+    };
+    let submitting = false;
+    const doSubmit = async () => {
+      if (submitting) return; // proses masih berjalan — abaikan klik/Enter tambahan (cegah baris ganda)
       const values = {}; let valid = true;
       fields.forEach((f) => {
         const wrap = form.querySelector(`[data-field="${f.key}"]`);
@@ -137,18 +145,23 @@ export function formModal({ title, icon = 'edit-3', fields, submitLabel = 'Simpa
         if (f.required && empty) { wrap.classList.add('invalid'); valid = false; } else { wrap.classList.remove('invalid'); values[f.key] = v; }
       });
       if (!valid) { toast('Periksa kembali kolom wajib yang belum diisi.', 'error', 'Validasi'); return; }
-      const btn = m.el.querySelector('[data-act="submit"]');
-      btn.classList.add('loading'); btn.innerHTML = '<span class="spinner"></span> Memproses…';
+      // Kunci tombol selama proses berjalan (unggah berkas bisa beberapa detik)
+      submitting = true;
+      submitBtn.disabled = true;
+      submitBtn.classList.add('loading'); submitBtn.innerHTML = '<span class="spinner"></span> Memproses…';
       try {
         const result = await onSubmit(values);
         if (result !== false) { m.close(); resolve(values); }
-        else { btn.classList.remove('loading'); btn.innerHTML = `<i data-lucide="save"></i>${esc(submitLabel)}`; refreshIcons(btn); }
+        else { submitting = false; restoreBtn(); }
       } catch (err) {
         console.error(err);
         toast(err.message || 'Gagal menyimpan data.', 'error', 'Kesalahan');
-        btn.classList.remove('loading'); btn.innerHTML = `<i data-lucide="save"></i>${esc(submitLabel)}`; refreshIcons(btn);
+        submitting = false; restoreBtn();
       }
-    });
+    };
+    submitBtn.addEventListener('click', doSubmit);
+    // Enter pada input tidak boleh me-reload halaman — jalankan alur simpan yang sama
+    form.addEventListener('submit', (e) => { e.preventDefault(); doSubmit(); });
     refreshIcons(m.el);
     const first = form.querySelector('input,select,textarea');
     if (first) setTimeout(() => first.focus(), 60);
