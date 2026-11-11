@@ -271,10 +271,28 @@ create policy storage_documents_read on storage.objects
   for select to anon, authenticated
   using (
     bucket_id = 'documents'
-    and exists (
-      select 1 from public.documents d
-      where d.file_path = 'documents/' || name
-        and public.can_read_document(d.classification, d.category, d.owner_id)
+    and (
+      -- 1) Berkas yang sudah tercatat pada baris dokumen: keamanan mengikuti
+      --    klasifikasi/kepemilikan lewat can_read_document.
+      exists (
+        select 1 from public.documents d
+        where d.file_path = 'documents/' || name
+          and public.can_read_document(d.classification, d.category, d.owner_id)
+      )
+      -- 2) Berkas baru/yang sedang diunggah (file_path belum tercatat):
+      --    pemilik dokumen atau penyelia (documents.edit). WAJIB ADA karena
+      --    Storage API mengunggah dengan upsert → INSERT ... RETURNING *,
+      --    dan RETURNING * menuntut baris baru TERLIHAT oleh SELECT policy —
+      --    tanpa cabang ini unggahan selalu ditolak dengan
+      --    "new row violates row-level security policy".
+      or exists (
+        select 1 from public.documents d
+        where d.id::text = split_part(name, '/', 1)
+          and (
+            d.owner_id = auth.uid()
+            or public.has_permission(public.get_my_role(), 'documents.edit')
+          )
+      )
     )
   );
 

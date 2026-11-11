@@ -244,6 +244,7 @@ Matriks lengkap terlihat di **Pengaturan → Matriks Hak Akses** dan diimplement
 | AI: "Gemini API error (400) — lainnya / 403" | API key tidak valid / Generative Language API belum aktif | Buat ulang kunci di https://aistudio.google.com/apikey dan set ulang secret |
 | AI: "Gemini API error (429)" | Kuota harian/rate limit habis | Tunggu atau naikkan kuota di AI Studio |
 | Saat simpan: `invalid input syntax for type uuid: "d-…"` | Kode frontend lama mengirim ID buatan klien ke kolom `uuid` Supabase | Perbarui `assets/js/supabase.js` ke versi terbaru (ID kini dibuat server), lalu **hard refresh** (Ctrl+Shift+R) agar cache berkas lama tidak terpakai |
+| Upload file: "Unggah gagal: new row violates row-level security policy" | Policy `storage_documents_read` versi lama — Storage API mengunggah dengan `upsert` (INSERT … RETURNING *) yang menuntut berkas baru terlihat oleh SELECT policy, padahal `file_path` belum tercatat | Jalankan ulang `supabase/policies.sql` terbaru (idempoten) di SQL Editor — policy kini mengizinkan pemilik/pengedit melihat berkas baru sebelum `file_path` tercatat. Baris dokumen gagal hasil percobaan lama dapat dihapus dari modul Dokumen |
 | AI menjawab tapi jawaban terpotong | Batas token keluaran | Sudah ditangani (maxOutputTokens 8192 + thinkingLevel low di dalam thinkingConfig); ringkaskan pertanyaan bila terjadi |
 | Email reset tidak terkirim | SMTP Supabase terbatas pada free tier | Aktifkan SMTP kustom di Auth → SMTP |
 
